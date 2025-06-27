@@ -199,4 +199,4 @@ Your curated documentation becomes the context layer that makes every AI coding 
 
 Built with Rust for performance. Designed for humans who actually have to maintain the docs.
 
-**[Follow Development](https://github.com/your-org/Codesworth) • [Join Discussions](https://github.com/your-org/Codesworth/discussions)**
+**[Follow Development](https://github.com/neural-chilli/codesworth) • [Join Discussions](https://github.com/neural-chilli/codesworth/discussions)**
