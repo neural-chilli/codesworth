@@ -1,4 +1,4 @@
-# DocForge
+# Codesworth
 
 ![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)
 ![Status](https://img.shields.io/badge/status-alpha-orange.svg)
@@ -8,7 +8,7 @@
 
 Docs rot. Code evolves. Humans forget.
 
-DocForge breaks this cycle by creating **living documentation** that preserves your edits while staying synchronized with your codebase. The knowledge doesn't live in model weights—it lives in excellent, searchable, version-controlled documentation that serves both your team and your tools.
+Codesworth breaks this cycle by creating **living documentation** that preserves your edits while staying synchronized with your codebase. The knowledge doesn't live in model weights—it lives in excellent, searchable, version-controlled documentation that serves both your team and your tools.
 
 ## The Problem We Solve
 
@@ -18,9 +18,9 @@ DocForge breaks this cycle by creating **living documentation** that preserves y
 
 **The Context Gap**: AI assistants lack the architectural intent and tribal knowledge behind your code decisions.
 
-## How DocForge Works
+## How Codesworth Works
 
-DocForge uses AST-aware diffing to detect code changes, then regenerates only the affected docs—without touching your edits. Here's the magic:
+Codesworth uses AST-aware diffing to detect code changes, then regenerates only the affected docs—without touching your edits. Here's the magic:
 
 1. **Content Hashing**: Each section includes a content hash linked to the code it documents
 2. **Protected Regions**: Humans can mark sections as `<!-- PROTECTED -->` to prevent regeneration
@@ -46,7 +46,7 @@ because queries are read-heavy and we can use CQRS projections.
 
 ## Example Output Structure
 
-DocForge generates structured markdown with metadata headers:
+Codesworth generates structured markdown with metadata headers:
 
 ```markdown
 ---
@@ -67,30 +67,30 @@ This service uses event sourcing because...
 Generated documentation for public functions...
 ```
 
-This header is generated and updated by DocForge, but you can extend it with your own fields—it's just frontmatter.
+This header is generated and updated by Codesworth, but you can extend it with your own fields—it's just frontmatter.
 
 ## Quick Start
 
 ```bash
 # Initialize documentation structure
-docforge init
+Codesworth init
 
 # Generate initial documentation  
-docforge generate
+Codesworth generate
 
 # Update only changed sections
-docforge sync
+Codesworth sync
 
 # Validate documentation health
-docforge validate
+Codesworth validate
 
 # Export for static sites
-docforge publish --format hugo
+Codesworth publish --format hugo
 ```
 
 ## Why Not Just Prompt GPT?
 
-**DocForge creates structured, version-controlled knowledge** that evolves with your codebase:
+**Codesworth creates structured, version-controlled knowledge** that evolves with your codebase:
 
 - **Persistent**: Your edits and context survive code changes
 - **Discoverable**: Instead of asking "what does the analytics service do?" every few months, your team browses `docs/services/analytics/README.md`, which has up-to-date API signatures, data flow diagrams, and a note on why event sourcing was chosen in 2022
@@ -101,22 +101,22 @@ docforge publish --format hugo
 
 **Parser Engine**: Tree-sitter provides consistent, language-agnostic code analysis
 
-**Edit Preservation**: AST diffs + content hashing let DocForge regenerate only what changed—without touching your carefully written sections
+**Edit Preservation**: AST diffs + content hashing let Codesworth regenerate only what changed—without touching your carefully written sections
 
-**Pattern Recognition**: DocForge detects recurring human edits and uses them to fine-tune template output—no cloud model training, no external API calls
+**Pattern Recognition**: Codesworth detects recurring human edits and uses them to fine-tune template output—no cloud model training, no external API calls
 
 **Output Format**: Pure markdown with metadata headers for static site generator compatibility
 
 ## FAQ
 
 **Q: How do you avoid AI hallucinations?**
-A: DocForge generates structure and relationships from actual code. AI only fills templates with factual information extracted from the AST.
+A: Codesworth generates structure and relationships from actual code. AI only fills templates with factual information extracted from the AST.
 
 **Q: What about legacy codebases?**
 A: Works on any code Tree-sitter can parse. No special comments or annotations required.
 
 **Q: Can I customize the output format?**
-A: Yes, through `docforge.toml` templates and per-project style guides.
+A: Yes, through `Codesworth.toml` templates and per-project style guides.
 
 **Q: What if the AI consistently misunderstands something?**
 A: Mark it `<!-- PROTECTED -->` once and it stays fixed forever. Your correction becomes part of the permanent knowledge base.
@@ -148,15 +148,15 @@ A: No. All processing happens locally. The only external calls are optional AI A
 
 ## CI Integration
 
-DocForge works seamlessly in your existing workflows:
+Codesworth works seamlessly in your existing workflows:
 
 ```yaml
 # .github/workflows/docs.yml
 - name: Validate Documentation
-  run: docforge validate --strict
+  run: Codesworth validate --strict
   
 - name: Check for Stale Docs
-  run: docforge sync --dry-run --fail-on-changes
+  run: Codesworth sync --dry-run --fail-on-changes
 ```
 
 ## Project Structure
@@ -175,7 +175,7 @@ docs/
 
 ## The Vision
 
-DocForge isn't just a documentation tool—it's the foundation for **human-AI collaboration in software development**. 
+Codesworth isn't just a documentation tool—it's the foundation for **human-AI collaboration in software development**. 
 
 Your curated documentation becomes the context layer that makes every AI coding assistant dramatically more effective. Instead of generic suggestions, they understand your architecture, your patterns, your decisions.
 
@@ -199,4 +199,4 @@ Your curated documentation becomes the context layer that makes every AI coding 
 
 Built with Rust for performance. Designed for humans who actually have to maintain the docs.
 
-**[Follow Development](https://github.com/your-org/docforge) • [Join Discussions](https://github.com/your-org/docforge/discussions)**
+**[Follow Development](https://github.com/your-org/Codesworth) • [Join Discussions](https://github.com/your-org/Codesworth/discussions)**
