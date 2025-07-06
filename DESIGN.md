@@ -10,35 +10,28 @@
 
 ## Strategic Principles
 
-### 1. Efficiency Over Intelligence
-**10x cost reduction while improving quality**
-- Pack $1 worth of insight into $0.1 of prompting
-- Tree-sitter provides free structural intelligence
-- LLM provides paid contextual intelligence
-- Smart batching and caching minimize API calls
-
-### 2. Guide, Don't Filter
+### 1. Guide, Don't Filter
 **Enhance LLM capability, don't replace it**
 - Tree-sitter extracts structural patterns and relationships
 - LLM interprets patterns in architectural context
 - Prompt engineering guides attention to high-value areas
 - Never hide information - provide guided context
 
-### 3. Language-Agnostic Depth
+### 2. Language-Agnostic Depth
 **Universal architecture that scales across technologies**
 - Each language parser handles ANY project in that language
 - No framework-specific hardcoding (Spring, Django, Express, etc.)
 - Generic pattern extraction with contextual interpretation
 - Future-proof through LLM knowledge leverage
 
-### 4. Insight Density Optimization
+### 3. Insight Density Optimization
 **99% value, 0% noise for both humans and AI**
 - Similarity-aware documentation (avoid repetition)
 - Focus on architectural decisions and implications
 - Highlight complexity, risk, and non-obvious behaviors
 - Surface cross-system relationships and dependencies
 
-### 5. Incremental Intelligence
+### 4. Incremental Intelligence
 **Preserve human knowledge, rebuild only what changed**
 - Protected regions remain untouched across regenerations
 - Content hashing for precise change detection
@@ -225,3 +218,7 @@ Not just "smart documentation" but "architectural consciousness" - a system that
 - How to guide developers safely through the architecture
 
 The goal: Make every codebase feel like it has a senior architect embedded in the documentation, available 24/7 to explain decisions, highlight risks, and guide safe changes.
+
+
+Really important stuff - avoid premature optimisation - we need to focus on awesome insights and fully understand our problem space before we optimise LLM usage and speed.
+We need to be really careful to avoid code smells like matching on the language name in areas outside the language specific parts.  If we need new capabilities in our language analysis, we should add new functions to the trait and provide language specific implementations in the language specific areas.
