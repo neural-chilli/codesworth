@@ -95,7 +95,7 @@ impl Engine {
         let human_context = self.context_scanner.scan_project_context(&project_root).await
             .map_err(|e| anyhow::anyhow!("Failed to scan project context: {}", e))?;
 
-        info!("Found context: README={}, Architecture docs={}, ADRs={}, Comments={}", 
+        info!("Found context: README={}, Architecture docs={}, ADRs={}, Comments={}",
             human_context.readme_content.is_some(),
             human_context.architecture_docs.len(),
             human_context.adrs.len(),
@@ -111,7 +111,7 @@ impl Engine {
 
         info!("Found {} packages:", package_analyses.len());
         for pkg in &package_analyses {
-            info!("  - {} (complexity: {:.2}, files: {})", 
+            info!("  - {} (complexity: {:.2}, files: {})",
                 pkg.package_name, pkg.complexity_score(), pkg.files.len());
         }
 
@@ -200,7 +200,7 @@ impl Engine {
             },
         };
 
-        info!("🧠 Enhancing with LLM: {} tokens of context", 
+        info!("🧠 Enhancing with LLM: {} tokens of context",
             self.estimate_context_size(&request));
 
         let response = self.batch_processor
@@ -208,7 +208,7 @@ impl Engine {
             .await
             .map_err(|e| anyhow::anyhow!("LLM processing failed: {}", e))?;
 
-        info!("✨ LLM enhancement complete (confidence: {:.2})", 
+        info!("✨ LLM enhancement complete (confidence: {:.2})",
             response.metadata.confidence_score);
 
         // Format the enhanced response into markdown
@@ -393,6 +393,35 @@ impl Engine {
         Ok(content)
     }
 
+    async fn generate_comprehensive_system_overview(
+        &self,
+        package_analyses: &[PackageAnalysis],
+        human_context: &HumanContext,
+        system_context: &SystemContext,
+        output_dir: &Path,
+    ) -> Result<()> {
+        info!("🎯 Generating comprehensive system overview with full analysis...");
+
+        if let Some(ref llm) = self.llm_documenter {
+            // Use the system overview generator for comprehensive analysis
+            let overview = self.system_overview_generator
+                .generate_system_overview(package_analyses, human_context, system_context, llm.as_ref())
+                .await?;
+
+            // Write the comprehensive overview
+            let overview_path = output_dir.join("README.md");
+            self.system_overview_generator.write_system_overview(&overview, &overview_path).await?;
+
+            info!("✅ Comprehensive system overview generated: {}", overview_path.display());
+        } else {
+            // Fallback to basic system overview without LLM
+            self.generate_system_overview(package_analyses, human_context, output_dir).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Generate basic system overview (fallback without LLM)
     async fn generate_system_overview(
         &self,
         package_analyses: &[PackageAnalysis],

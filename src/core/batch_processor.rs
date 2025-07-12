@@ -235,8 +235,8 @@ impl BatchProcessor {
         request: BatchDocumentationRequest,
         llm_documenter: &dyn LlmDocumenter,
     ) -> Result<BatchDocumentationResponse> {
-        // Build comprehensive prompt with all context
-        let prompt = self.build_comprehensive_prompt(&request)?;
+        // Build comprehensive prompt with deep semantic analysis
+        let prompt = self.build_semantic_analysis_prompt(&request)?;
 
         // Make single LLM call with rich context
         let enhancement_request = EnhancementRequest {
@@ -254,40 +254,72 @@ impl BatchProcessor {
         self.parse_llm_response(llm_response, &request).await
     }
 
-    fn build_comprehensive_prompt(&self, request: &BatchDocumentationRequest) -> Result<String> {
+    fn build_semantic_analysis_prompt(&self, request: &BatchDocumentationRequest) -> Result<String> {
         let pkg = &request.package_analysis;
         let mut prompt = String::new();
 
-        // System instruction with role clarity
+        // System instruction with focus on semantic understanding
         prompt.push_str(&format!(
-            "You are an expert software documentation specialist analyzing the '{}' package. \
-            Your goal is to create documentation that genuinely helps developers understand, \
-            use, and maintain this code.\n\n",
+            "You are analyzing the '{}' package to understand its ACTUAL business purpose and domain.\n\
+            Your goal is to understand what this code REALLY does in the business context,\n\
+            not just describe its technical implementation.\n\n",
             pkg.package_name
         ));
 
-        // Package summary for context
-        prompt.push_str(&format!(
-            "PACKAGE SUMMARY:\n\
-            Name: {}\n\
-            Type: {}\n\
-            Complexity Score: {:.2}\n\
-            Public API Elements: {}\n\
-            External Dependencies: {}\n\
-            Lines of Code: {}\n\n",
-            pkg.package_name,
-            pkg.generate_summary(),
-            pkg.complexity_score(),
-            pkg.public_api.functions.len() + pkg.public_api.types.len(),
-            pkg.dependencies.external_deps.len(),
-            pkg.complexity_indicators.loc
+        // Extract and analyze semantic patterns
+        let semantic_analysis = self.extract_semantic_intelligence(pkg);
+
+        prompt.push_str("SEMANTIC CODE ANALYSIS:\n");
+        prompt.push_str(&format!("Package: {} ({})\n", pkg.package_name, pkg.generate_summary()));
+        prompt.push_str(&format!("Complexity: {:.2} | Files: {} | API Elements: {}\n\n",
+                                 pkg.complexity_score(),
+                                 pkg.files.len(),
+                                 pkg.public_api.functions.len() + pkg.public_api.types.len()
         ));
 
-        // Business domain analysis - GENERIC patterns
-        if let Some(business_context) = self.extract_business_context(pkg) {
-            prompt.push_str("BUSINESS DOMAIN INSIGHTS:\n");
-            prompt.push_str(&business_context);
-            prompt.push_str("\n\n");
+        // Entity relationship analysis
+        if !semantic_analysis.entity_relationships.is_empty() {
+            prompt.push_str("ENTITY RELATIONSHIPS:\n");
+            for relationship in &semantic_analysis.entity_relationships {
+                prompt.push_str(&format!("- {}\n", relationship));
+            }
+            prompt.push_str("\n");
+        }
+
+        // Business logic patterns
+        if !semantic_analysis.business_logic_patterns.is_empty() {
+            prompt.push_str("BUSINESS LOGIC PATTERNS:\n");
+            for pattern in &semantic_analysis.business_logic_patterns {
+                prompt.push_str(&format!("- {}\n", pattern));
+            }
+            prompt.push_str("\n");
+        }
+
+        // Data flow analysis
+        if !semantic_analysis.data_flows.is_empty() {
+            prompt.push_str("DATA FLOW ANALYSIS:\n");
+            for flow in &semantic_analysis.data_flows {
+                prompt.push_str(&format!("- {}\n", flow));
+            }
+            prompt.push_str("\n");
+        }
+
+        // Domain vocabulary
+        if !semantic_analysis.domain_vocabulary.is_empty() {
+            prompt.push_str("DOMAIN VOCABULARY:\n");
+            for (term, context) in &semantic_analysis.domain_vocabulary {
+                prompt.push_str(&format!("- {}: {}\n", term, context));
+            }
+            prompt.push_str("\n");
+        }
+
+        // Configuration analysis
+        if !semantic_analysis.configuration_insights.is_empty() {
+            prompt.push_str("CONFIGURATION INSIGHTS:\n");
+            for insight in &semantic_analysis.configuration_insights {
+                prompt.push_str(&format!("- {}\n", insight));
+            }
+            prompt.push_str("\n");
         }
 
         // Human context integration (without interpretation)
@@ -301,18 +333,6 @@ impl BatchProcessor {
             prompt.push_str("ARCHITECTURAL DOCUMENTATION:\n");
             for doc in &request.human_context.architecture_docs {
                 prompt.push_str(&format!("## {}\n{}\n\n", doc.title, doc.content));
-            }
-        }
-
-        if !request.human_context.adrs.is_empty() {
-            prompt.push_str("ARCHITECTURAL DECISIONS:\n");
-            for adr in &request.human_context.adrs {
-                prompt.push_str(&format!(
-                    "- {}: {} ({})\n  Context: {}\n  Decision: {}\n\n",
-                    adr.title, adr.status,
-                    adr.date.as_deref().unwrap_or("Date unknown"),
-                    adr.context, adr.decision
-                ));
             }
         }
 
@@ -340,13 +360,6 @@ impl BatchProcessor {
                     api_type.type_kind,
                     api_type.docs.as_deref().unwrap_or("No documentation")
                 ));
-
-                if !api_type.methods.is_empty() {
-                    prompt.push_str("  Methods:\n");
-                    for method in &api_type.methods {
-                        prompt.push_str(&format!("    - {}\n", method.name));
-                    }
-                }
             }
             prompt.push_str("\n");
         }
@@ -363,69 +376,32 @@ impl BatchProcessor {
             prompt.push_str("\n");
         }
 
-        // Dependencies - filtered for relevance
-        let relevant_deps = self.filter_relevant_dependencies(&pkg.dependencies.external_deps);
-        if !relevant_deps.is_empty() {
-            prompt.push_str("KEY DEPENDENCIES:\n");
-            for dep in &relevant_deps {
-                prompt.push_str(&format!("- {} ({})\n", dep.name, dep.usage_context));
-            }
-            prompt.push_str("\n");
-        }
-
-        // Gotchas and important considerations
-        if !pkg.complexity_indicators.gotchas.is_empty() {
-            prompt.push_str("IMPORTANT CONSIDERATIONS:\n");
-            for gotcha in &pkg.complexity_indicators.gotchas {
-                prompt.push_str(&format!(
-                    "- {:?} ({:?}): {}\n",
-                    gotcha.category, gotcha.severity, gotcha.description
-                ));
-                if let Some(suggestion) = &gotcha.suggestion {
-                    prompt.push_str(&format!("  Recommendation: {}\n", suggestion));
-                }
-            }
-            prompt.push_str("\n");
-        }
-
-        // System context
-        if !request.system_context.related_packages.is_empty() {
-            prompt.push_str("RELATED PACKAGES:\n");
-            for related in &request.system_context.related_packages {
-                prompt.push_str(&format!(
-                    "- {} ({}): {}\n",
-                    related.name, related.relationship, related.interaction_summary
-                ));
-            }
-            prompt.push_str("\n");
-        }
-
-        // Clear instruction focused on BUSINESS PURPOSE
+        // Task instruction with semantic focus
         prompt.push_str(&format!(
-            "TASK: Create comprehensive documentation for the '{}' package that focuses on BUSINESS PURPOSE, not just technical implementation.\n\n\
-            Answer these questions in order of importance:\n\n\
-            1. BUSINESS PURPOSE & DOMAIN:\n\
-               - What does this system actually DO in the real world?\n\
-               - What business problem does it solve?\n\
-               - What domain concepts does it implement?\n\
-               - Who are the users and what do they accomplish?\n\n\
-            2. KEY BUSINESS LOGIC:\n\
-               - What are the core business rules and workflows?\n\
-               - What domain-specific algorithms or decision logic exists?\n\
-               - What business invariants or constraints are enforced?\n\
+            "ANALYSIS TASK:\n\
+            Based on the semantic analysis above, determine what this '{}' package ACTUALLY does:\n\n\
+            1. BUSINESS DOMAIN ANALYSIS:\n\
+               - What real-world business problem does this solve?\n\
+               - What industry/domain does this serve?\n\
+               - What are the core business concepts and entities?\n\
+               - Who are the actual users and what do they accomplish?\n\n\
+            2. BUSINESS LOGIC ANALYSIS:\n\
+               - What are the key business rules and workflows?\n\
+               - What domain-specific decisions or algorithms exist?\n\
+               - What business constraints or invariants are enforced?\n\
                - What edge cases or business exceptions are handled?\n\n\
-            3. PRACTICAL USAGE:\n\
-               - How do you actually use this system to accomplish business goals?\n\
+            3. PRACTICAL PURPOSE:\n\
+               - How do users actually interact with this system?\n\
                - What are the common usage patterns and workflows?\n\
-               - What configuration or setup is needed for business operations?\n\
-               - What integrations enable business functionality?\n\n\
-            4. TECHNICAL IMPLEMENTATION (secondary):\n\
-               - What architectural decisions support the business requirements?\n\
-               - What performance or scalability considerations matter for business use?\n\
-               - What technical gotchas could impact business operations?\n\n\
-            CRITICAL: Start with the business domain and work down to technical details. \
-            Avoid generic framework descriptions unless they're essential to understanding the business purpose. \
-            Focus on what makes THIS system unique and valuable.\n\n\
+               - What business value does this package provide?\n\
+               - How does this fit into the larger business context?\n\n\
+            CRITICAL INSTRUCTIONS:\n\
+            - Focus on BUSINESS SEMANTICS, not just technical patterns\n\
+            - Look for the ACTUAL DOMAIN this serves (entertainment, finance, etc.)\n\
+            - Identify SPECIFIC use cases, not generic \"communication\" or \"processing\"\n\
+            - Connect entity relationships to business concepts\n\
+            - Explain WHY this system exists from a business perspective\n\
+            - Avoid generic tech buzzwords - be specific about the business domain\n\n\
             Target audience: {}\n\
             Depth level: {:?}\n",
             pkg.package_name,
@@ -436,143 +412,221 @@ impl BatchProcessor {
         Ok(prompt)
     }
 
-    /// Extract business domain context using generic patterns
-    fn extract_business_context(&self, pkg: &PackageAnalysis) -> Option<String> {
-        let mut insights = Vec::new();
+    /// Extract semantic intelligence from package analysis
+    fn extract_semantic_intelligence(&self, pkg: &PackageAnalysis) -> SemanticIntelligence {
+        let mut intelligence = SemanticIntelligence::new();
 
-        // Analyze all source content for business patterns
+        // Analyze all source content for semantic patterns
         let combined_content = pkg.files.iter()
             .map(|f| &f.source_content)
             .cloned()
             .collect::<Vec<_>>()
             .join(" ");
 
-        // Domain terminology patterns (generic)
-        let domain_terms = self.extract_domain_terminology(&combined_content);
-        if !domain_terms.is_empty() {
-            // Try to infer domain context from term combinations
-            if let Some(domain_context) = self.infer_domain_context(&domain_terms, &combined_content) {
-                insights.push(domain_context);
-            } else {
-                insights.push(format!("Domain concepts: {}", domain_terms.join(", ")));
+        // Extract entity relationships
+        intelligence.entity_relationships = self.analyze_entity_relationships(pkg);
+
+        // Extract business logic patterns
+        intelligence.business_logic_patterns = self.analyze_business_logic_patterns(&combined_content);
+
+        // Extract data flow patterns
+        intelligence.data_flows = self.analyze_data_flows(&combined_content);
+
+        // Extract domain vocabulary
+        intelligence.domain_vocabulary = self.extract_domain_vocabulary(&combined_content);
+
+        // Extract configuration insights
+        intelligence.configuration_insights = self.analyze_configuration_context(pkg);
+
+        intelligence
+    }
+
+    /// Analyze entity relationships in the code
+    fn analyze_entity_relationships(&self, pkg: &PackageAnalysis) -> Vec<String> {
+        let mut relationships = Vec::new();
+
+        // Look for class/type relationships
+        for api_type in &pkg.public_api.types {
+            // Skip technical types
+            if self.is_technical_type(&api_type.name) {
+                continue;
+            }
+
+            // Analyze type relationships
+            if api_type.type_kind == "class" || api_type.type_kind == "struct" {
+                relationships.push(format!(
+                    "{} entity with {} methods ({})",
+                    api_type.name,
+                    api_type.methods.len(),
+                    api_type.docs.as_deref().unwrap_or("business entity")
+                ));
+            }
+
+            // Look for response/request patterns
+            if api_type.name.contains("Response") || api_type.name.contains("Request") {
+                let base_name = api_type.name.replace("Response", "").replace("Request", "");
+                relationships.push(format!(
+                    "{} data transfer for {} operations",
+                    api_type.name, base_name
+                ));
             }
         }
 
-        // Business rule patterns
-        let business_rules = self.extract_business_rules(&combined_content, pkg);
-        insights.extend(business_rules);
-
-        // User-facing functionality patterns
-        let user_patterns = self.extract_user_facing_patterns(&combined_content);
-        insights.extend(user_patterns);
-
-        // Data model patterns  
-        let data_insights = self.extract_data_model_insights(pkg);
-        insights.extend(data_insights);
-
-        // Workflow patterns
-        let workflow_insights = self.extract_workflow_patterns(&combined_content);
-        insights.extend(workflow_insights);
-
-        // Specific business patterns
-        let specific_patterns = self.extract_specific_business_patterns(&combined_content);
-        insights.extend(specific_patterns);
-
-        if insights.is_empty() {
-            None
-        } else {
-            Some(insights.join("\n"))
+        // Look for service relationships
+        for function in &pkg.public_api.functions {
+            if function.name.contains("process") || function.name.contains("handle") {
+                relationships.push(format!(
+                    "{} processes business operations",
+                    function.name
+                ));
+            }
         }
+
+        relationships
     }
 
-    /// Infer domain context from related terminology
-    fn infer_domain_context(&self, terms: &[String], content: &str) -> Option<String> {
-        let combined_terms = terms.join(" ").to_lowercase();
-
-        // Star Trek patterns
-        if (combined_terms.contains("kirk") || combined_terms.contains("spock") ||
-            combined_terms.contains("enterprise")) &&
-            (combined_terms.contains("crew") || combined_terms.contains("captain")) {
-            return Some("Star Trek themed system with crew member characters and USS Enterprise context".to_string());
-        }
-
-        // Gaming patterns
-        if combined_terms.contains("player") || combined_terms.contains("game") ||
-            combined_terms.contains("score") || combined_terms.contains("level") {
-            return Some("Gaming system with player interactions and scoring".to_string());
-        }
-
-        // E-commerce patterns
-        if combined_terms.contains("order") || combined_terms.contains("payment") ||
-            combined_terms.contains("product") || combined_terms.contains("cart") {
-            return Some("E-commerce system with order processing and payment handling".to_string());
-        }
-
-        // Financial patterns
-        if combined_terms.contains("account") || combined_terms.contains("transaction") ||
-            combined_terms.contains("balance") || combined_terms.contains("money") {
-            return Some("Financial system with account management and transactions".to_string());
-        }
-
-        // Chat/Communication patterns
-        if combined_terms.contains("message") || combined_terms.contains("chat") ||
-            combined_terms.contains("conversation") {
-            return Some("Communication system with messaging and chat functionality".to_string());
-        }
-
-        None
-    }
-
-    /// Extract specific business patterns and logic
-    fn extract_specific_business_patterns(&self, content: &str) -> Vec<String> {
+    /// Analyze business logic patterns
+    fn analyze_business_logic_patterns(&self, content: &str) -> Vec<String> {
         let mut patterns = Vec::new();
 
-        // Character/persona systems
-        if content.contains("persona") && content.contains("character") {
-            patterns.push("Character persona system with role-based behavior".to_string());
-        }
-
-        // Alias/mapping systems with specific examples
-        if content.contains("alias") && content.contains("put(") {
-            if let Some(alias_examples) = self.extract_alias_examples(content) {
-                patterns.push(format!("Alias mapping system: {}", alias_examples));
+        // Look for mapping/lookup patterns with specific examples
+        if content.contains("put(") && content.contains("get(") {
+            let mapping_examples = self.extract_mapping_examples(content);
+            if !mapping_examples.is_empty() {
+                patterns.push(format!("Key-value mapping system: {}", mapping_examples.join(", ")));
             }
         }
 
-        // Random selection patterns
-        if content.contains("random") && content.contains("size()") {
-            patterns.push("Random selection from available options".to_string());
-        }
-
-        // Follow-up/probability patterns with specific values
-        if let Some(probability_details) = self.extract_detailed_probability_patterns(content) {
+        // Look for probability/percentage logic
+        if let Some(probability_details) = self.extract_probability_details(content) {
             patterns.push(probability_details);
         }
 
-        // Response generation patterns
+        // Look for persona/character patterns
+        if content.to_lowercase().contains("persona") || content.to_lowercase().contains("character") {
+            patterns.push("Character/persona-based behavior system".to_string());
+        }
+
+        // Look for response generation patterns
         if content.contains("response") && content.contains("generate") {
             patterns.push("Dynamic response generation based on input".to_string());
         }
 
-        // Memory/conversation patterns
-        if content.contains("memory") && content.contains("conversation") {
-            patterns.push("Conversation memory for context-aware interactions".to_string());
+        // Look for random selection patterns
+        if content.contains("random") && content.contains("size()") {
+            patterns.push("Random selection from available options".to_string());
+        }
+
+        // Look for alias/shortcut patterns
+        if content.contains("alias") {
+            patterns.push("Alias/shortcut mapping for user convenience".to_string());
+        }
+
+        // Look for validation patterns
+        if content.contains("validate") || content.contains("check") {
+            patterns.push("Input validation and business rule enforcement".to_string());
         }
 
         patterns
     }
 
-    /// Extract specific alias examples from code
-    fn extract_alias_examples(&self, content: &str) -> Option<String> {
+    /// Analyze data flows in the system
+    fn analyze_data_flows(&self, content: &str) -> Vec<String> {
+        let mut flows = Vec::new();
+
+        // WebSocket flow patterns
+        if content.contains("WebSocket") || content.contains("@MessageMapping") {
+            flows.push("Real-time bidirectional communication via WebSocket".to_string());
+        }
+
+        // HTTP endpoint patterns
+        if content.contains("@GetMapping") || content.contains("@PostMapping") {
+            flows.push("HTTP request/response processing".to_string());
+        }
+
+        // Message processing flows
+        if content.contains("Message") && content.contains("process") {
+            flows.push("Message processing and routing workflow".to_string());
+        }
+
+        // Event-driven patterns
+        if content.contains("event") || content.contains("trigger") {
+            flows.push("Event-driven processing and triggering".to_string());
+        }
+
+        flows
+    }
+
+    /// Extract domain-specific vocabulary with context
+    fn extract_domain_vocabulary(&self, content: &str) -> Vec<(String, String)> {
+        let mut vocabulary = Vec::new();
+
+        // Extract meaningful words with frequency
+        let words: Vec<&str> = content.split_whitespace()
+            .filter(|word| word.len() > 3)
+            .filter(|word| !self.is_technical_noise(word))
+            .collect();
+
+        let mut word_counts = std::collections::HashMap::new();
+        for word in words {
+            let clean_word = word.to_lowercase()
+                .trim_matches(|c: char| !c.is_alphabetic())
+                .to_string();
+            if clean_word.len() > 3 && self.seems_domain_specific(&clean_word) {
+                *word_counts.entry(clean_word).or_insert(0) += 1;
+            }
+        }
+
+        // Extract terms that appear frequently
+        for (word, count) in word_counts {
+            if count >= 2 {
+                let context = self.extract_word_context(&word, content);
+                vocabulary.push((word, context));
+            }
+        }
+
+        vocabulary.sort_by(|a, b| b.1.len().cmp(&a.1.len())); // Sort by context richness
+        vocabulary.truncate(10); // Keep most relevant terms
+        vocabulary
+    }
+
+    /// Analyze configuration for business context
+    fn analyze_configuration_context(&self, pkg: &PackageAnalysis) -> Vec<String> {
+        let mut insights = Vec::new();
+
+        // Look for specific dependencies that reveal business context
+        for dep in &pkg.dependencies.external_deps {
+            match dep.name.to_lowercase().as_str() {
+                name if name.contains("websocket") => {
+                    insights.push("Real-time communication capabilities".to_string());
+                }
+                name if name.contains("message") => {
+                    insights.push("Message processing and routing".to_string());
+                }
+                name if name.contains("spring") => {
+                    insights.push("Enterprise web application framework".to_string());
+                }
+                name if name.contains("lombok") => {
+                    insights.push("Java development with reduced boilerplate".to_string());
+                }
+                _ => {}
+            }
+        }
+
+        insights
+    }
+
+    // Helper methods for semantic analysis
+
+    fn extract_mapping_examples(&self, content: &str) -> Vec<String> {
         let mut examples = Vec::new();
 
         // Look for put() statements with string literals
         let lines: Vec<&str> = content.lines().collect();
         for line in lines {
             if line.contains("put(") && line.contains("\"") {
-                // Extract simple alias patterns like .put("kirk", "Kirk")
-                if let Some(alias_example) = self.parse_alias_line(line) {
-                    examples.push(alias_example);
+                if let Some(example) = self.parse_mapping_line(line) {
+                    examples.push(example);
                     if examples.len() >= 3 { // Limit examples
                         break;
                     }
@@ -580,16 +634,11 @@ impl BatchProcessor {
             }
         }
 
-        if examples.is_empty() {
-            None
-        } else {
-            Some(examples.join(", "))
-        }
+        examples
     }
 
-    /// Parse a single alias mapping line
-    fn parse_alias_line(&self, line: &str) -> Option<String> {
-        // Simple regex to extract put("key", "value") patterns
+    fn parse_mapping_line(&self, line: &str) -> Option<String> {
+        // Simple extraction of put("key", "value") patterns
         if let Ok(re) = regex::Regex::new(r#"put\("([^"]+)",\s*"([^"]+)"\)"#) {
             if let Some(captures) = re.captures(line) {
                 let key = captures.get(1)?.as_str();
@@ -600,17 +649,13 @@ impl BatchProcessor {
         None
     }
 
-    /// Extract detailed probability patterns with context
-    fn extract_detailed_probability_patterns(&self, content: &str) -> Option<String> {
+    fn extract_probability_details(&self, content: &str) -> Option<String> {
+        // Look for probability assignments
         let lines: Vec<&str> = content.lines().collect();
-
         for line in lines {
             let line_lower = line.to_lowercase();
-
-            // Look for probability assignments with context
-            if line_lower.contains("probability") && line_lower.contains("=") {
+            if (line_lower.contains("probability") || line_lower.contains("chance")) && line_lower.contains("=") {
                 if let Some(prob_value) = self.extract_probability_value(line) {
-                    // Try to get context from surrounding lines or variable names
                     if line_lower.contains("followup") || line_lower.contains("follow") {
                         return Some(format!("Follow-up probability: {} (automatic conversation continuation)", prob_value));
                     } else {
@@ -618,15 +663,7 @@ impl BatchProcessor {
                     }
                 }
             }
-
-            // Look for percentage patterns
-            if line_lower.contains("%") || line_lower.contains("chance") {
-                if let Some(percentage) = self.extract_percentage_from_line(line) {
-                    return Some(format!("Probability-based behavior: {}", percentage));
-                }
-            }
         }
-
         None
     }
 
@@ -639,168 +676,47 @@ impl BatchProcessor {
         None
     }
 
-    fn extract_percentage_from_line(&self, line: &str) -> Option<String> {
-        if let Ok(re) = regex::Regex::new(r"([0-9]*\.?[0-9]+)\s*%") {
-            if let Some(captures) = re.captures(line) {
-                return Some(format!("{}%", captures.get(1)?.as_str()));
-            }
-        }
-        None
-    }
-
-    /// Extract domain-specific terminology (language agnostic)
-    fn extract_domain_terminology(&self, content: &str) -> Vec<String> {
-        let mut terms = Vec::new();
-
-        // Look for repeated domain-specific words (not framework terms)
-        let words: Vec<&str> = content.split_whitespace()
-            .filter(|word| word.len() > 3)
-            .filter(|word| !self.is_technical_noise(word))
-            .collect();
-
-        let mut word_counts = std::collections::HashMap::new();
-        for word in words {
-            let clean_word = word.to_lowercase()
-                .trim_matches(|c: char| !c.is_alphabetic())
-                .to_string();
-            if clean_word.len() > 3 {
-                *word_counts.entry(clean_word).or_insert(0) += 1;
-            }
-        }
-
-        // Find words that appear frequently and seem domain-specific
-        for (word, count) in word_counts {
-            if count >= 3 && self.seems_domain_specific(&word) {
-                terms.push(word);
-            }
-        }
-
-        terms.sort();
-        terms.dedup();
-        terms.truncate(8); // Keep most relevant terms
-        terms
-    }
-
-    /// Extract business rules and logic patterns
-    fn extract_business_rules(&self, content: &str, pkg: &PackageAnalysis) -> Vec<String> {
-        let mut rules = Vec::new();
-
-        // Probability/percentage patterns
-        if let Some(probabilities) = self.extract_probability_patterns(content) {
-            rules.push(format!("Probability-based logic: {}", probabilities));
-        }
-
-        // Mapping/alias patterns
-        if content.contains("alias") || content.contains("mapping") || content.contains("lookup") {
-            if let Some(mapping_insight) = self.extract_mapping_patterns(content) {
-                rules.push(mapping_insight);
-            }
-        }
-
-        // State machine patterns
-        if let Some(state_patterns) = self.extract_state_patterns(content) {
-            rules.push(state_patterns);
-        }
-
-        // Validation/constraint patterns
-        if let Some(validation_patterns) = self.extract_validation_patterns(content) {
-            rules.push(validation_patterns);
-        }
-
-        // Calculation/algorithm patterns
-        if let Some(calc_patterns) = self.extract_calculation_patterns(content) {
-            rules.push(calc_patterns);
-        }
-
-        rules
-    }
-
-    /// Extract user-facing functionality indicators
-    fn extract_user_facing_patterns(&self, content: &str) -> Vec<String> {
-        let mut patterns = Vec::new();
-
-        // API endpoint patterns
-        if content.contains("endpoint") || content.contains("route") || content.contains("@GetMapping") {
-            patterns.push("HTTP API endpoints for user interaction".to_string());
-        }
-
-        // WebSocket/real-time patterns
-        if content.contains("websocket") || content.contains("@MessageMapping") {
-            patterns.push("Real-time communication interface".to_string());
-        }
-
-        // CLI patterns
-        if content.contains("clap") || content.contains("argparse") || content.contains("click") {
-            patterns.push("Command-line interface for user operations".to_string());
-        }
-
-        // Event handling patterns
-        if content.contains("event") || content.contains("handler") || content.contains("listener") {
-            patterns.push("Event-driven user interactions".to_string());
-        }
-
-        patterns
-    }
-
-    /// Extract insights from data models
-    fn extract_data_model_insights(&self, pkg: &PackageAnalysis) -> Vec<String> {
-        let mut insights = Vec::new();
-
-        // Look for data structures that represent business concepts
-        for api_type in &pkg.public_api.types {
-            if api_type.type_kind == "struct" || api_type.type_kind == "class" {
-                // Skip obvious technical types
-                if !self.is_technical_type(&api_type.name) {
-                    insights.push(format!(
-                        "Business entity: {} ({})",
-                        api_type.name,
-                        api_type.docs.as_deref().unwrap_or("data model")
-                    ));
+    fn extract_word_context(&self, word: &str, content: &str) -> String {
+        // Find context around the word
+        let lines: Vec<&str> = content.lines().collect();
+        for line in lines {
+            if line.to_lowercase().contains(word) {
+                // Return a cleaned version of the line as context
+                let cleaned = line.trim()
+                    .replace("public", "")
+                    .replace("private", "")
+                    .replace("class", "")
+                    .replace("//", "")
+                    .trim()
+                    .to_string();
+                if cleaned.len() > word.len() + 5 {
+                    return cleaned;
                 }
             }
-
-            if api_type.type_kind == "enum" && !self.is_technical_type(&api_type.name) {
-                insights.push(format!("Business states/categories: {}", api_type.name));
-            }
         }
-
-        insights
+        "domain concept".to_string()
     }
 
-    /// Extract workflow and process patterns
-    fn extract_workflow_patterns(&self, content: &str) -> Vec<String> {
-        let mut patterns = Vec::new();
+    fn is_technical_type(&self, type_name: &str) -> bool {
+        let technical_patterns = [
+            "config", "configuration", "settings", "properties",
+            "exception", "error", "result", "handler", "processor",
+            "builder", "factory", "adapter", "wrapper", "util"
+        ];
 
-        // Sequential processing patterns
-        if content.contains("pipeline") || content.contains("chain") || content.contains("workflow") {
-            patterns.push("Sequential processing workflow".to_string());
-        }
-
-        // Asynchronous processing patterns
-        if content.contains("async") || content.contains("await") || content.contains("future") {
-            patterns.push("Asynchronous operation handling".to_string());
-        }
-
-        // Batch processing patterns
-        if content.contains("batch") || content.contains("bulk") || content.contains("queue") {
-            patterns.push("Batch/queue processing operations".to_string());
-        }
-
-        patterns
+        let name_lower = type_name.to_lowercase();
+        technical_patterns.iter().any(|pattern| name_lower.contains(pattern))
     }
-
-    // Helper methods for business context extraction
 
     fn is_technical_noise(&self, word: &str) -> bool {
         let noise_terms = [
             "string", "boolean", "integer", "float", "double", "char", "byte",
             "array", "list", "vector", "map", "hash", "dict", "set",
             "class", "struct", "enum", "trait", "interface",
-            "public", "private", "static", "final", "const", "mut",
+            "public", "private", "static", "final", "const", "void",
             "import", "include", "using", "namespace", "package",
-            "function", "method", "procedure", "lambda",
-            "return", "throw", "catch", "finally", "else",
-            "spring", "framework", "library", "util", "helper"
+            "function", "method", "return", "throw", "catch", "finally",
+            "spring", "framework", "library", "util", "helper", "lombok"
         ];
         noise_terms.contains(&word.to_lowercase().as_str())
     }
@@ -813,95 +729,18 @@ impl BatchProcessor {
             return false;
         }
 
-        // Skip single letters and very short words
+        // Skip very short words
         if word.len() < 4 {
             return false;
         }
 
-        // Skip words that are clearly file/code patterns
+        // Skip words that are clearly technical patterns
         if word_lower.contains("impl") || word_lower.contains("test") ||
-            word_lower.contains("config") || word_lower.contains("util") {
+            word_lower.contains("config") || word_lower.contains("debug") {
             return false;
         }
 
         true
-    }
-
-    fn extract_probability_patterns(&self, content: &str) -> Option<String> {
-        let probability_regex = regex::Regex::new(r"([0-9]*\.?[0-9]+)\s*(?:%|probability|chance)").ok()?;
-        let percentages: Vec<_> = probability_regex.find_iter(content)
-            .map(|m| m.as_str())
-            .collect();
-
-        if !percentages.is_empty() {
-            Some(percentages.join(", "))
-        } else {
-            None
-        }
-    }
-
-    fn extract_mapping_patterns(&self, content: &str) -> Option<String> {
-        if content.contains("put(") && content.contains("get(") {
-            Some("Key-value mapping/lookup system".to_string())
-        } else if content.contains("alias") {
-            Some("Alias/shortcut mapping system".to_string())
-        } else {
-            None
-        }
-    }
-
-    fn extract_state_patterns(&self, content: &str) -> Option<String> {
-        if content.contains("state") && (content.contains("enum") || content.contains("switch")) {
-            Some("State machine or status management".to_string())
-        } else {
-            None
-        }
-    }
-
-    fn extract_validation_patterns(&self, content: &str) -> Option<String> {
-        if content.contains("validate") || content.contains("check") || content.contains("verify") {
-            Some("Input validation and business rule enforcement".to_string())
-        } else {
-            None
-        }
-    }
-
-    fn extract_calculation_patterns(&self, content: &str) -> Option<String> {
-        if content.contains("calculate") || content.contains("compute") || content.contains("algorithm") {
-            Some("Business calculations and algorithms".to_string())
-        } else {
-            None
-        }
-    }
-
-    fn is_technical_type(&self, type_name: &str) -> bool {
-        let technical_patterns = [
-            "config", "configuration", "settings", "properties",
-            "exception", "error", "result", "response", "request",
-            "util", "helper", "handler", "processor", "manager",
-            "builder", "factory", "adapter", "wrapper"
-        ];
-
-        let name_lower = type_name.to_lowercase();
-        technical_patterns.iter().any(|pattern| name_lower.contains(pattern))
-    }
-
-    /// Filter dependencies to show only business-relevant ones
-    fn filter_relevant_dependencies<'a>(&self, deps: &'a [super::package_analysis::ExternalDependency]) -> Vec<&'a super::package_analysis::ExternalDependency> {
-        deps.iter()
-            .filter(|dep| !self.is_framework_noise(&dep.name))
-            .collect()
-    }
-
-    fn is_framework_noise(&self, dep_name: &str) -> bool {
-        let noise_patterns = [
-            "org.springframework", "com.fasterxml", "javax", "java.",
-            "org.slf4j", "ch.qos.logback", "org.junit", "org.mockito",
-            "org.apache.commons", "com.google.guava",
-            // Add more framework noise patterns as needed
-        ];
-
-        noise_patterns.iter().any(|pattern| dep_name.starts_with(pattern))
     }
 
     fn build_documentation_context(&self, request: &BatchDocumentationRequest) -> Result<DocumentationContext> {
@@ -1011,13 +850,13 @@ impl BatchProcessor {
 
     fn infer_project_type(&self, human_context: &HumanContext) -> String {
         if human_context.configuration_hints.iter()
-            .any(|hint| hint.source.contains("Cargo.toml") && hint.insights.iter().any(|i| i.contains("bin"))) {
-            "application".to_string()
+            .any(|hint| hint.source.contains("pom.xml") && hint.insights.iter().any(|i| i.contains("application"))) {
+            "web application".to_string()
         } else if human_context.configuration_hints.iter()
             .any(|hint| hint.insights.iter().any(|i| i.contains("web") || i.contains("server"))) {
             "web service".to_string()
         } else {
-            "library".to_string()
+            "application".to_string()
         }
     }
 
@@ -1036,6 +875,37 @@ impl BatchProcessor {
                 description: pkg.interaction_summary.clone(),
             })
             .collect()
+    }
+}
+
+/// Semantic intelligence extracted from code analysis
+#[derive(Debug, Clone)]
+struct SemanticIntelligence {
+    /// Entity relationships found in the code
+    pub entity_relationships: Vec<String>,
+
+    /// Business logic patterns identified
+    pub business_logic_patterns: Vec<String>,
+
+    /// Data flow patterns
+    pub data_flows: Vec<String>,
+
+    /// Domain-specific vocabulary with context
+    pub domain_vocabulary: Vec<(String, String)>,
+
+    /// Configuration insights
+    pub configuration_insights: Vec<String>,
+}
+
+impl SemanticIntelligence {
+    fn new() -> Self {
+        Self {
+            entity_relationships: Vec::new(),
+            business_logic_patterns: Vec::new(),
+            data_flows: Vec::new(),
+            domain_vocabulary: Vec::new(),
+            configuration_insights: Vec::new(),
+        }
     }
 }
 

@@ -100,7 +100,7 @@ pub struct TechnicalOverview {
     pub technology_stack: TechStack,
 
     /// Key architectural decisions
-    pub architectural_decisions: Vec<ArchitecturalDecision>,
+    pub architectural_decisions: Vec<SystemArchitecturalDecision>,
 
     /// Performance and scalability characteristics
     pub non_functional_requirements: Vec<String>,
@@ -116,7 +116,7 @@ pub struct TechStack {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ArchitecturalDecision {
+pub struct SystemArchitecturalDecision {
     pub decision: String,
     pub rationale: String,
     pub alternatives_considered: Vec<String>,
@@ -272,7 +272,7 @@ impl SystemOverviewGenerator {
         let response = self.hierarchical_analyzer.make_chunked_llm_call(prompt, llm_documenter).await?;
 
         // Parse JSON response or provide fallback
-        serde_json::from_str(&response.content).unwrap_or_else(|_| BusinessContext {
+        Ok(serde_json::from_str(&response.content).unwrap_or_else(|_| BusinessContext {
             domain: understanding.business_domain.domain_type.clone(),
             problem_statement: format!("Provides {} functionality", understanding.business_domain.subdomain),
             target_users: vec![TargetUser {
@@ -283,7 +283,7 @@ impl SystemOverviewGenerator {
                     .collect(),
             }],
             value_proposition: understanding.system_purpose.clone(),
-        })
+        }))
     }
 
     /// Generate user guide section
@@ -339,11 +339,11 @@ impl SystemOverviewGenerator {
             architecture_pattern: understanding.architecture_overview.pattern.clone(),
             technology_stack: tech_stack,
             architectural_decisions: understanding.architecture_overview.key_decisions.iter()
-                .map(|decision| ArchitecturalDecision {
-                    decision: decision.title.clone(),
-                    rationale: decision.decision.clone(),
-                    alternatives_considered: vec![], // TODO: Extract from ADRs
-                    trade_offs: vec![], // TODO: Extract from consequences
+                .map(|decision| SystemArchitecturalDecision {
+                    decision: decision.decision.clone(),
+                    rationale: decision.rationale.clone(),
+                    alternatives_considered: decision.alternatives_considered.clone(),
+                    trade_offs: decision.trade_offs.clone(),
                 })
                 .collect(),
             non_functional_requirements: understanding.architecture_overview.non_functional_attributes.clone(),
