@@ -354,58 +354,6 @@ impl HierarchicalAnalyzer {
 
         Ok(domain)
     }
-    /// Analyze business domain from comprehensive code intelligence
-    async fn analyze_business_domain(
-        &self,
-        intelligence: &CodeIntelligence,
-        llm_documenter: &dyn LlmDocumenter,
-    ) -> Result<BusinessDomain> {
-
-        // Build prompt with ALL the extracted intelligence - let LLM discover patterns
-        let prompt = format!(
-            "Analyze this codebase to determine the business domain and purpose.\n\n\
-            STRING LITERALS FROM CODE:\n{}\n\n\
-            FUNCTION CALLS AND CONTEXTS:\n{}\n\n\
-            TYPE DEFINITIONS:\n{}\n\n\
-            COMMENTS AND DOCUMENTATION:\n{}\n\n\
-            VARIABLE PATTERNS:\n{}\n\n\
-            DETECTED PATTERNS:\n{}\n\n\
-            Based on this comprehensive code analysis, determine:\n\
-            1. What industry/domain is this system for?\n\
-            2. What specific business problem does it solve?\n\
-            3. Who are the primary users?\n\
-            4. What are the core business concepts?\n\n\
-            IMPORTANT: Analyze the actual patterns in the code. Do not assume or invent themes.\n\
-            Look for genuine business logic, entity relationships, and user workflows.\n\n\
-            Respond in JSON format:\n\
-            {{\n\
-              \"domain_type\": \"Primary industry/domain based on actual code patterns\",\n\
-              \"subdomain\": \"Specific business area based on evidence\",\n\
-              \"user_types\": [\"User type based on actual code\", \"Secondary user type\"],\n\
-              \"key_concepts\": [\"Concept 1 from code\", \"Concept 2 from code\"]\n\
-            }}",
-            intelligence.string_literals.join("\n"),
-            intelligence.function_calls.join("\n"),
-            intelligence.type_definitions.join("\n"),
-            intelligence.comments.join("\n"),
-            intelligence.variable_patterns.join("\n"),
-            intelligence.business_patterns.join("\n")
-        );
-
-        // Make chunked LLM call if needed
-        let response = self.make_chunked_llm_call(prompt, llm_documenter).await?;
-
-        // Parse JSON response
-        let domain: BusinessDomain = serde_json::from_str(&response.content)
-            .unwrap_or_else(|_| BusinessDomain {
-                domain_type: "Software Application".to_string(),
-                subdomain: "General Purpose Application".to_string(),
-                user_types: vec!["End Users".to_string()],
-                key_concepts: vec!["Data Processing".to_string(), "User Interaction".to_string()],
-            });
-
-        Ok(domain)
-    }
 
     /// Analyze user workflows from semantic patterns
     async fn analyze_user_workflows_semantically(
@@ -449,67 +397,6 @@ impl HierarchicalAnalyzer {
             intelligence.business_logic.join("\n"),
             intelligence.entity_patterns.join("\n"),
             self.extract_data_flows(packages)
-        );
-
-        let response = self.make_chunked_llm_call(prompt, llm_documenter).await?;
-
-        // Parse workflows
-        if let Ok(workflow_data) = serde_json::from_str::<serde_json::Value>(&response.content) {
-            if let Some(workflows_array) = workflow_data.get("workflows").and_then(|w| w.as_array()) {
-                let mut workflows = Vec::new();
-                for workflow_json in workflows_array {
-                    if let Ok(workflow) = serde_json::from_value::<UserWorkflow>(workflow_json.clone()) {
-                        workflows.push(workflow);
-                    }
-                }
-                return Ok(workflows);
-            }
-        }
-
-        // Fallback
-        Ok(vec![UserWorkflow {
-            name: "Primary User Interaction".to_string(),
-            steps: vec![],
-            involved_packages: packages.iter().map(|p| p.package_name.clone()).collect(),
-        }])
-    }
-
-    /// Analyze user workflows from code patterns
-    async fn analyze_user_workflows(
-        &self,
-        intelligence: &CodeIntelligence,
-        packages: &[PackageAnalysis],
-        llm_documenter: &dyn LlmDocumenter,
-    ) -> Result<Vec<UserWorkflow>> {
-
-        // Build workflow analysis prompt
-        let prompt = format!(
-            "Analyze the user workflows in this system based on the code patterns.\n\n\
-            ENTRY POINTS:\n{}\n\n\
-            FUNCTION CALL CHAINS:\n{}\n\n\
-            DATA FLOW PATTERNS:\n{}\n\n\
-            Identify the main user workflows - what do users actually DO with this system?\n\
-            For each workflow, trace the technical implementation through the packages.\n\n\
-            Base your analysis on actual code patterns, not assumptions.\n\n\
-            Respond in JSON format:\n\
-            {{\n\
-              \"workflows\": [\n\
-                {{\n\
-                  \"name\": \"Workflow name based on code evidence\",\n\
-                  \"steps\": [\n\
-                    {{\n\
-                      \"description\": \"What the user does\",\n\
-                      \"technical_implementation\": \"How the code handles this\",\n\
-                      \"business_rules\": [\"Rule 1\", \"Rule 2\"]\n\
-                    }}\n\
-                  ],\n\
-                  \"involved_packages\": [\"package1\", \"package2\"]\n\
-                }}\n\
-              ]\n\
-            }}",
-            self.extract_entry_points(packages),
-            intelligence.function_calls.join("\n"),
-            self.extract_data_flow_patterns(intelligence)
         );
 
         let response = self.make_chunked_llm_call(prompt, llm_documenter).await?;
@@ -585,313 +472,23 @@ impl HierarchicalAnalyzer {
         })
     }
 
-    // Helper methods for code intelligence extraction
+    // Helper methods for semantic analysis
 
-    fn extract_string_literals(&self, content: &str) -> Vec<String> {
-        let mut literals = Vec::new();
+    fn extract_entity_patterns(&self, content: &str) -> Vec<String> {
+        let mut patterns = Vec::new();
 
-        // Extract quoted strings
-        if let Ok(re) = regex::Regex::new(r#""([^"\\]|\\.)*""#) {
-            for mat in re.find_iter(content) {
-                let literal = mat.as_str();
-                // Filter out short or obvious technical strings
-                if literal.len() > 8 && !self.is_technical_string(literal) {
-                    literals.push(literal.to_string());
-                }
-            }
-        }
-
-        literals
-    }
-
-    fn extract_function_calls(&self, content: &str) -> Vec<String> {
-        let mut calls = Vec::new();
-
-        // Extract function call patterns
-        if let Ok(re) = regex::Regex::new(r"(\w+)\s*\([^)]*\)") {
-            for mat in re.find_iter(content) {
-                let call = mat.as_str();
-                if !self.is_technical_function_call(call) {
-                    calls.push(call.to_string());
-                }
-            }
-        }
-
-        calls
-    }
-
-    fn extract_type_definitions(&self, content: &str) -> Vec<String> {
-        let mut types = Vec::new();
-
-        // Extract class/struct/enum definitions with some context
+        // Look for class/struct definitions with context
         let lines: Vec<&str> = content.lines().collect();
         for (i, line) in lines.iter().enumerate() {
             if line.contains("class ") || line.contains("struct ") || line.contains("enum ") {
-                // Include some context around the definition
-                let start = i.saturating_sub(2);
-                let end = (i + 3).min(lines.len());
-                let context = lines[start..end].join("\n");
-                types.push(context);
-            }
-        }
-
-        types
-    }
-
-    fn extract_all_comments(&self, content: &str) -> Vec<String> {
-        let mut comments = Vec::new();
-
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with("*") {
-                let comment = trimmed.trim_start_matches("//")
-                    .trim_start_matches("/*")
-                    .trim_start_matches("*")
-                    .trim();
-                if comment.len() > 10 {
-                    comments.push(comment.to_string());
-                }
-            }
-        }
-
-        comments
-    }
-
-    fn extract_variable_patterns(&self, content: &str) -> Vec<String> {
-        let mut patterns = Vec::new();
-
-        // Extract variable assignments that might reveal business logic
-        if let Ok(re) = regex::Regex::new(r"(\w+)\s*=\s*([^;]+);") {
-            for mat in re.find_iter(content) {
-                let assignment = mat.as_str();
-                if self.seems_business_relevant(assignment) {
-                    patterns.push(assignment.to_string());
+                if let Some(entity_name) = self.extract_entity_name(line) {
+                    let context = self.extract_entity_context(&lines, i);
+                    patterns.push(format!("{}: {}", entity_name, context));
                 }
             }
         }
 
         patterns
-    }
-
-    fn analyze_cross_cutting_patterns(&self, intelligence: &CodeIntelligence) -> Vec<String> {
-        let mut patterns = Vec::new();
-
-        // Analyze patterns across all extracted intelligence using GENERIC detection
-        let all_text = format!(
-            "{} {} {} {}",
-            intelligence.string_literals.join(" "),
-            intelligence.function_calls.join(" "),
-            intelligence.comments.join(" "),
-            intelligence.variable_patterns.join(" ")
-        );
-
-        // Generic business domain indicators - NO HARDCODED THEMES!
-
-        // Communication/messaging patterns
-        if all_text.to_lowercase().contains("message") ||
-            all_text.to_lowercase().contains("chat") ||
-            all_text.to_lowercase().contains("conversation") {
-            patterns.push("Communication/messaging capabilities detected".to_string());
-        }
-
-        // AI/ML patterns
-        if all_text.to_lowercase().contains("model") ||
-            all_text.to_lowercase().contains("prompt") ||
-            all_text.to_lowercase().contains("training") {
-            patterns.push("AI/ML integration capabilities detected".to_string());
-        }
-
-        // E-commerce patterns
-        if all_text.to_lowercase().contains("order") ||
-            all_text.to_lowercase().contains("payment") ||
-            all_text.to_lowercase().contains("cart") {
-            patterns.push("E-commerce capabilities detected".to_string());
-        }
-
-        // Gaming patterns
-        if all_text.to_lowercase().contains("player") ||
-            all_text.to_lowercase().contains("score") ||
-            all_text.to_lowercase().contains("level") {
-            patterns.push("Gaming/gamification capabilities detected".to_string());
-        }
-
-        // Financial patterns
-        if all_text.to_lowercase().contains("account") ||
-            all_text.to_lowercase().contains("transaction") ||
-            all_text.to_lowercase().contains("balance") {
-            patterns.push("Financial transaction capabilities detected".to_string());
-        }
-
-        // Content management patterns
-        if all_text.to_lowercase().contains("article") ||
-            all_text.to_lowercase().contains("publish") ||
-            all_text.to_lowercase().contains("content") {
-            patterns.push("Content management capabilities detected".to_string());
-        }
-
-        // Authentication/security patterns
-        if all_text.to_lowercase().contains("authenticate") ||
-            all_text.to_lowercase().contains("authorize") ||
-            all_text.to_lowercase().contains("permission") {
-            patterns.push("Authentication/authorization capabilities detected".to_string());
-        }
-
-        // Data processing patterns
-        if all_text.to_lowercase().contains("process") ||
-            all_text.to_lowercase().contains("transform") ||
-            all_text.to_lowercase().contains("analyze") {
-            patterns.push("Data processing capabilities detected".to_string());
-        }
-
-        patterns
-    }
-
-    // Utility methods
-
-    fn is_technical_string(&self, s: &str) -> bool {
-        let s_lower = s.to_lowercase();
-        s_lower.contains("error") || s_lower.contains("exception") ||
-            s_lower.contains("debug") || s_lower.contains("log") ||
-            s.len() < 8
-    }
-
-    fn is_technical_function_call(&self, call: &str) -> bool {
-        let call_lower = call.to_lowercase();
-        call_lower.starts_with("get") || call_lower.starts_with("set") ||
-            call_lower.contains("debug") || call_lower.contains("log")
-    }
-
-    fn seems_business_relevant(&self, assignment: &str) -> bool {
-        let assignment_lower = assignment.to_lowercase();
-        !assignment_lower.contains("debug") && !assignment_lower.contains("log") &&
-            assignment.len() > 20
-    }
-
-    fn split_prompt_into_chunks(&self, prompt: &str) -> Vec<String> {
-        let chunk_size = self.context_window_limit * 4; // Convert tokens to chars
-        let mut chunks = Vec::new();
-
-        if prompt.len() <= chunk_size {
-            chunks.push(prompt.to_string());
-            return chunks;
-        }
-
-        let mut start = 0;
-        while start < prompt.len() {
-            let end = (start + chunk_size - self.overlap_buffer).min(prompt.len());
-
-            // Try to break at sentence boundaries
-            let chunk_end = if end < prompt.len() {
-                prompt[start..end].rfind('.').map(|pos| start + pos + 1).unwrap_or(end)
-            } else {
-                end
-            };
-
-            chunks.push(prompt[start..chunk_end].to_string());
-            start = chunk_end.saturating_sub(self.overlap_buffer);
-        }
-
-        chunks
-    }
-
-    fn create_minimal_context(&self) -> Result<super::DocumentationContext> {
-        // Create minimal context for LLM calls
-        use std::path::PathBuf;
-
-        Ok(super::DocumentationContext {
-            file: super::ParsedFile {
-                path: PathBuf::from("analysis"),
-                language: "analysis".to_string(),
-                content_hash: "analysis".to_string(),
-                modified_time: std::time::SystemTime::now(),
-                modules: vec![],
-                file_docs: None,
-                source_content: "".to_string(),
-            },
-            target_module: None,
-            related_files: vec![],
-            project_info: super::ProjectInfo {
-                name: "System Analysis".to_string(),
-                description: None,
-                language: "multi".to_string(),
-                project_type: Some("analysis".to_string()),
-            },
-            architecture_docs: None,
-        })
-    }
-
-    // Helper method implementations
-    fn extract_entry_points(&self, packages: &[PackageAnalysis]) -> String {
-        let mut entry_points = Vec::new();
-        for package in packages {
-            for entry_point in &package.public_api.entry_points {
-                entry_points.push(format!("{}: {:?}", entry_point.name, entry_point.entry_type));
-            }
-        }
-        entry_points.join("\n")
-    }
-
-    fn extract_data_flow_patterns(&self, intelligence: &CodeIntelligence) -> String {
-        // Simple implementation - could be enhanced
-        intelligence.function_calls.join(" -> ")
-    }
-
-    // Placeholder implementations for other analysis methods
-    async fn analyze_architecture_overview(
-        &self,
-        _packages: &[PackageAnalysis],
-        _human_context: &HumanContext,
-        _llm_documenter: &dyn LlmDocumenter,
-    ) -> Result<ArchitectureOverview> {
-        Ok(ArchitectureOverview {
-            pattern: "Layered Architecture".to_string(),
-            key_decisions: vec![],
-            technology_summary: TechnologySummary {
-                primary_language: "Rust".to_string(),
-                frameworks: vec!["Web Framework".to_string()],
-                key_libraries: vec![],
-                data_storage: vec![],
-                communication_protocols: vec!["HTTP".to_string()],
-            },
-            non_functional_attributes: vec![],
-        })
-    }
-
-    async fn build_domain_model(
-        &self,
-        _intelligence: &CodeIntelligence,
-        _domain_analysis: &BusinessDomain,
-        _llm_documenter: &dyn LlmDocumenter,
-    ) -> Result<DomainModel> {
-        Ok(DomainModel {
-            entities: vec![],
-            relationships: vec![],
-            business_rules: vec![],
-        })
-    }
-
-    async fn generate_system_insights(
-        &self,
-        _domain_analysis: &BusinessDomain,
-        _workflow_analysis: &[UserWorkflow],
-        _architecture_analysis: &ArchitectureOverview,
-        _llm_documenter: &dyn LlmDocumenter,
-    ) -> Result<Vec<SystemInsight>> {
-        Ok(vec![])
-    }
-
-    async fn synthesize_system_purpose(
-        &self,
-        domain_analysis: &BusinessDomain,
-        _workflow_analysis: &[UserWorkflow],
-        _human_context: &HumanContext,
-        _llm_documenter: &dyn LlmDocumenter,
-    ) -> Result<String> {
-        Ok(format!(
-            "{} system in the {} domain",
-            domain_analysis.subdomain,
-            domain_analysis.domain_type
-        ))
     }
 
     fn extract_business_logic_patterns(&self, content: &str) -> Vec<String> {
@@ -1109,14 +706,17 @@ impl HierarchicalAnalyzer {
         // Find lines containing the word
         for line in content.lines() {
             if line.to_lowercase().contains(word) {
-                let cleaned = line.trim()
+                // Let's fix the temporary value issue by using a let binding
+                let line_trim = line.trim();
+                let cleaned = line_trim
                     .replace("public", "")
                     .replace("private", "")
                     .replace("class", "")
-                    .replace("//", "")
-                    .trim();
-                if cleaned.len() > word.len() + 10 {
-                    return cleaned.to_string();
+                    .replace("//", "");
+                let final_cleaned = cleaned.trim();
+                
+                if final_cleaned.len() > word.len() + 10 {
+                    return final_cleaned.to_string();
                 }
             }
         }
@@ -1142,47 +742,188 @@ impl HierarchicalAnalyzer {
         flows.join("\n")
     }
 
-    fn is_technical_line(&self, line: &str) -> bool {
-        let line_lower = line.to_lowercase();
-        line_lower.contains("config") || line_lower.contains("util") ||
-            line_lower.contains("exception") || line_lower.contains("error")
+    fn is_technical_noise(&self, word: &str) -> bool {
+        let noise_terms = [
+            "string", "boolean", "integer", "float", "double", "char", "byte",
+            "array", "list", "vector", "map", "hash", "dict", "set",
+            "class", "struct", "enum", "trait", "interface",
+            "public", "private", "static", "final", "const", "void",
+            "import", "include", "using", "namespace", "package",
+            "function", "method", "return", "throw", "catch", "finally",
+            "spring", "framework", "library", "util", "helper", "lombok"
+        ];
+        noise_terms.contains(&word.to_lowercase().as_str())
     }
-    
+
+    fn seems_domain_specific(&self, word: &str) -> bool {
+        let word_lower = word.to_lowercase();
+
+        // Skip obvious technical terms
+        if self.is_technical_noise(&word_lower) {
+            return false;
+        }
+
+        // Skip very short words
+        if word.len() < 4 {
+            return false;
+        }
+
+        // Skip words that are clearly technical patterns
+        if word_lower.contains("impl") || word_lower.contains("test") ||
+            word_lower.contains("config") || word_lower.contains("debug") {
+            return false;
+        }
+
+        true
+    }
+
+    fn split_prompt_into_chunks(&self, prompt: &str) -> Vec<String> {
+        let chunk_size = self.context_window_limit * 4; // Convert tokens to chars
+        let mut chunks = Vec::new();
+
+        if prompt.len() <= chunk_size {
+            chunks.push(prompt.to_string());
+            return chunks;
+        }
+
+        let mut start = 0;
+        while start < prompt.len() {
+            let end = (start + chunk_size - self.overlap_buffer).min(prompt.len());
+
+            // Try to break at sentence boundaries
+            let chunk_end = if end < prompt.len() {
+                prompt[start..end].rfind('.').map(|pos| start + pos + 1).unwrap_or(end)
+            } else {
+                end
+            };
+
+            chunks.push(prompt[start..chunk_end].to_string());
+            start = chunk_end.saturating_sub(self.overlap_buffer);
+        }
+
+        chunks
+    }
+
+    fn create_minimal_context(&self) -> Result<super::DocumentationContext> {
+        // Create minimal context for LLM calls
+        use std::path::PathBuf;
+
+        Ok(super::DocumentationContext {
+            file: super::ParsedFile {
+                path: PathBuf::from("analysis"),
+                language: "analysis".to_string(),
+                content_hash: "analysis".to_string(),
+                modified_time: std::time::SystemTime::now(),
+                modules: vec![],
+                file_docs: None,
+                source_content: "".to_string(),
+            },
+            target_module: None,
+            related_files: vec![],
+            project_info: super::ProjectInfo {
+                name: "System Analysis".to_string(),
+                description: None,
+                language: "multi".to_string(),
+                project_type: Some("analysis".to_string()),
+            },
+            architecture_docs: None,
+        })
+    }
+
+    // Placeholder implementations for other analysis methods
+    async fn analyze_architecture_overview(
+        &self,
+        _packages: &[PackageAnalysis],
+        _human_context: &HumanContext,
+        _llm_documenter: &dyn LlmDocumenter,
+    ) -> Result<ArchitectureOverview> {
+        Ok(ArchitectureOverview {
+            pattern: "Layered Architecture".to_string(),
+            key_decisions: vec![],
+            technology_summary: TechnologySummary {
+                primary_language: "Rust".to_string(),
+                frameworks: vec!["Web Framework".to_string()],
+                key_libraries: vec![],
+                data_storage: vec![],
+                communication_protocols: vec!["HTTP".to_string()],
+            },
+            non_functional_attributes: vec![],
+        })
+    }
+
+    async fn build_domain_model(
+        &self,
+        _intelligence: &SemanticCodeIntelligence,
+        _domain_analysis: &BusinessDomain,
+        _llm_documenter: &dyn LlmDocumenter,
+    ) -> Result<DomainModel> {
+        Ok(DomainModel {
+            entities: vec![],
+            relationships: vec![],
+            business_rules: vec![],
+        })
+    }
+
+    async fn generate_system_insights(
+        &self,
+        _domain_analysis: &BusinessDomain,
+        _workflow_analysis: &[UserWorkflow],
+        _architecture_analysis: &ArchitectureOverview,
+        _llm_documenter: &dyn LlmDocumenter,
+    ) -> Result<Vec<SystemInsight>> {
+        Ok(vec![])
+    }
+
+    async fn synthesize_system_purpose(
+        &self,
+        domain_analysis: &BusinessDomain,
+        _workflow_analysis: &[UserWorkflow],
+        _human_context: &HumanContext,
+        _llm_documenter: &dyn LlmDocumenter,
+    ) -> Result<String> {
+        Ok(format!(
+            "{} system in the {} domain",
+            domain_analysis.subdomain,
+            domain_analysis.domain_type
+        ))
+    }
 }
 
-
-
-/// Comprehensive code intelligence extracted from all source files
+/// Semantic intelligence extracted from code analysis
 #[derive(Debug, Clone)]
-struct CodeIntelligence {
-    /// All string literals found in the code
-    pub string_literals: Vec<String>,
+struct SemanticCodeIntelligence {
+    /// Entity relationships found in the code
+    pub entity_patterns: Vec<String>,
 
-    /// Function calls with context
-    pub function_calls: Vec<String>,
+    /// Business logic patterns identified
+    pub business_logic: Vec<String>,
 
-    /// Type definitions with context
-    pub type_definitions: Vec<String>,
+    /// Data flow patterns
+    pub data_mappings: Vec<String>,
 
-    /// Comments and documentation
-    pub comments: Vec<String>,
+    /// Workflow patterns
+    pub workflow_patterns: Vec<String>,
 
-    /// Variable assignment patterns
-    pub variable_patterns: Vec<String>,
+    /// Domain-specific vocabulary with context
+    pub domain_terms: Vec<(String, String)>,
 
-    /// Cross-cutting business patterns identified
-    pub business_patterns: Vec<String>,
+    /// Configuration insights
+    pub configuration_patterns: Vec<String>,
+
+    /// System-level patterns
+    pub system_patterns: Vec<String>,
 }
 
-impl CodeIntelligence {
+impl SemanticCodeIntelligence {
     fn new() -> Self {
         Self {
-            string_literals: Vec::new(),
-            function_calls: Vec::new(),
-            type_definitions: Vec::new(),
-            comments: Vec::new(),
-            variable_patterns: Vec::new(),
-            business_patterns: Vec::new(),
+            entity_patterns: Vec::new(),
+            business_logic: Vec::new(),
+            data_mappings: Vec::new(),
+            workflow_patterns: Vec::new(),
+            domain_terms: Vec::new(),
+            configuration_patterns: Vec::new(),
+            system_patterns: Vec::new(),
         }
     }
 }
