@@ -18,6 +18,9 @@ pub enum CodesworthError {
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 
+    #[error("Regex error: {0}")]
+    Regex(#[from] regex::Error),
+
     #[error("File system error: {0}")]
     FileSystem(String),
 
