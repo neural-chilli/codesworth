@@ -1,10 +1,11 @@
+// src/core/languages/java.rs - Updated with better call detection
 use std::path::Path;
 use tree_sitter::{Language, Parser, Node};
 
 use crate::error::{CodesworthError, Result};
 use super::{LanguageParser, ParsedModule};
 
-/// Java-specific parser using Tree-sitter
+/// Java-specific parser using Tree-sitter with enhanced call detection
 pub struct JavaParser {
     parser: Parser,
 }
@@ -48,34 +49,29 @@ impl LanguageParser for JavaParser {
 
             if trimmed.starts_with("/**") {
                 in_javadoc = true;
-                // Extract content after /**
                 let content = trimmed.trim_start_matches("/**").trim();
                 if !content.is_empty() && content != "*/" {
                     doc_lines.push(content.to_string());
                 }
             } else if in_javadoc {
                 if trimmed.ends_with("*/") {
-                    // Extract content before */
                     let content = trimmed.trim_end_matches("*/").trim_start_matches("*").trim();
                     if !content.is_empty() {
                         doc_lines.push(content.to_string());
                     }
                     break;
                 } else {
-                    // Extract content from middle of javadoc
                     let content = trimmed.trim_start_matches("*").trim();
                     if !content.is_empty() {
                         doc_lines.push(content.to_string());
                     }
                 }
             } else if trimmed.starts_with("//") {
-                // Single line comment at file level
                 let content = trimmed.trim_start_matches("//").trim();
                 if !content.is_empty() {
                     doc_lines.push(content.to_string());
                 }
             } else if !trimmed.is_empty() && !trimmed.starts_with("package") && !trimmed.starts_with("import") {
-                // Hit code, stop looking for file-level docs
                 break;
             }
         }
@@ -133,10 +129,10 @@ impl JavaParser {
         Ok(())
     }
 
-    /// Parse a Java class declaration
+    /// Parse a Java class declaration with enhanced annotation detection
     fn parse_java_class(&self, node: Node, source: &str) -> Result<Option<ParsedModule>> {
         let mut name = None;
-        let mut visibility = "package".to_string(); // Java default visibility
+        let mut visibility = "package".to_string();
         let mut docs = None;
 
         // Extract class name
@@ -149,8 +145,8 @@ impl JavaParser {
             visibility = self.parse_java_visibility(modifiers_node, source);
         }
 
-        // Look for Javadoc comments
-        docs = self.extract_docs_before_node(node, source);
+        // Look for annotations and documentation
+        docs = self.extract_docs_and_annotations_before_node(node, source);
 
         // Extract methods from the class
         let mut methods = Vec::new();
@@ -198,7 +194,7 @@ impl JavaParser {
             visibility = self.parse_java_visibility(modifiers_node, source);
         }
 
-        docs = self.extract_docs_before_node(node, source);
+        docs = self.extract_docs_and_annotations_before_node(node, source);
 
         if let Some(interface_name) = name {
             Ok(Some(ParsedModule {
@@ -211,7 +207,7 @@ impl JavaParser {
                     node.start_position().row + 1,
                     node.end_position().row + 1
                 ),
-                children: vec![], // TODO: Parse interface methods
+                children: vec![],
             }))
         } else {
             Ok(None)
@@ -232,7 +228,7 @@ impl JavaParser {
             visibility = self.parse_java_visibility(modifiers_node, source);
         }
 
-        docs = self.extract_docs_before_node(node, source);
+        docs = self.extract_docs_and_annotations_before_node(node, source);
 
         if let Some(enum_name) = name {
             Ok(Some(ParsedModule {
@@ -245,14 +241,14 @@ impl JavaParser {
                     node.start_position().row + 1,
                     node.end_position().row + 1
                 ),
-                children: vec![], // TODO: Parse enum constants
+                children: vec![],
             }))
         } else {
             Ok(None)
         }
     }
 
-    /// Parse a Java method declaration
+    /// Parse a Java method declaration with annotation detection
     fn parse_java_method(&self, node: Node, source: &str) -> Result<Option<ParsedModule>> {
         let mut name = None;
         let mut visibility = "package".to_string();
@@ -266,7 +262,8 @@ impl JavaParser {
             visibility = self.parse_java_visibility(modifiers_node, source);
         }
 
-        docs = self.extract_docs_before_node(node, source);
+        // Enhanced documentation and annotation extraction
+        docs = self.extract_docs_and_annotations_before_node(node, source);
 
         if let Some(method_name) = name {
             Ok(Some(ParsedModule {
@@ -296,7 +293,7 @@ impl JavaParser {
         } else if modifiers_text.contains("protected") {
             "protected".to_string()
         } else {
-            "package".to_string() // Java default visibility
+            "package".to_string()
         }
     }
 
@@ -342,24 +339,23 @@ impl JavaParser {
 
     /// Extract method signature (more precise than class signature)
     fn extract_method_signature(&self, node: Node, source: &str) -> String {
-        // For methods, we want the full signature including return type and parameters
         let full_text = self.node_text(node, source);
         if let Some(brace_pos) = full_text.find('{') {
             full_text[..brace_pos].trim().to_string()
         } else {
-            // Abstract method or interface method - no body
             full_text.trim_end_matches(';').trim().to_string()
         }
     }
 
-    /// Extract Javadoc comments before a node
-    fn extract_docs_before_node(&self, node: Node, source: &str) -> Option<String> {
+    /// Enhanced documentation and annotation extraction
+    fn extract_docs_and_annotations_before_node(&self, node: Node, source: &str) -> Option<String> {
         let start_row = node.start_position().row;
         let lines: Vec<&str> = source.lines().collect();
         let mut doc_lines = Vec::new();
+        let mut annotations = Vec::new();
         let mut in_javadoc = false;
 
-        // Look backwards from the node's line for javadoc comments
+        // Look backwards from the node's line for doc comments and annotations
         for i in (0..start_row).rev() {
             if i >= lines.len() {
                 continue;
@@ -367,6 +363,13 @@ impl JavaParser {
 
             let line = lines[i].trim();
 
+            // Handle annotations
+            if line.starts_with("@") {
+                annotations.insert(0, line.to_string());
+                continue;
+            }
+
+            // Handle Javadoc
             if line.ends_with("*/") && !in_javadoc {
                 in_javadoc = true;
                 let content = line.trim_end_matches("*/").trim_start_matches("*").trim();
@@ -391,24 +394,30 @@ impl JavaParser {
                 if !content.is_empty() {
                     doc_lines.insert(0, content.to_string());
                 } else {
-                    break; // Empty comment line, stop looking
+                    break;
                 }
             } else if line.is_empty() {
-                // Allow empty lines in doc blocks
-                continue;
-            } else if line.starts_with("@") {
-                // Annotation, continue looking
                 continue;
             } else {
-                // Hit code, stop looking
                 break;
             }
         }
 
-        if doc_lines.is_empty() {
+        // Combine annotations and documentation
+        let mut result = Vec::new();
+
+        if !annotations.is_empty() {
+            result.push(format!("Annotations: {}", annotations.join(", ")));
+        }
+
+        if !doc_lines.is_empty() {
+            result.push(doc_lines.join(" "));
+        }
+
+        if result.is_empty() {
             None
         } else {
-            Some(doc_lines.join(" "))
+            Some(result.join(" | "))
         }
     }
 

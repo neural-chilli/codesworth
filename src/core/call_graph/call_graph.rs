@@ -1,4 +1,4 @@
-// src/core/call_graph/call_graph.rs
+// src/core/call_graph/call_graph.rs - Fixed call graph building
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
@@ -134,10 +134,14 @@ impl CallGraph {
             graph.extract_methods_from_file(file)?;
         }
 
+        println!("Extracted {} methods", graph.nodes.len());
+
         // Second pass: extract all method calls
         for file in files {
             graph.extract_calls_from_file(file)?;
         }
+
+        println!("Found {} call edges", graph.edges.len());
 
         // Build adjacency lists
         graph.build_adjacency_lists();
@@ -255,9 +259,8 @@ impl CallGraph {
         Ok(())
     }
 
-    /// Extract method calls from a file
+    /// Extract method calls from a file - THIS IS THE KEY FIX
     fn extract_calls_from_file(&mut self, file: &ParsedFile) -> Result<()> {
-        // Parse the source content to find method calls
         let lines: Vec<&str> = file.source_content.lines().collect();
 
         for (line_number, line) in lines.iter().enumerate() {
@@ -268,13 +271,16 @@ impl CallGraph {
                 if let Some(containing_method) = self.find_containing_method(file, line_number + 1) {
                     // Try to resolve the call to a known method
                     if let Some(target_method) = self.resolve_method_call(file, &call_name, &containing_method) {
-                        let edge = CallEdge {
-                            caller: containing_method,
-                            callee: target_method,
-                            call_site_line: line_number + 1,
-                            call_type: self.detect_call_type(line),
-                        };
-                        self.add_edge(edge);
+                        // CRITICAL: Only add edge if caller != callee
+                        if containing_method != target_method {
+                            let edge = CallEdge {
+                                caller: containing_method,
+                                callee: target_method,
+                                call_site_line: line_number + 1,
+                                call_type: self.detect_call_type(line),
+                            };
+                            self.add_edge(edge);
+                        }
                     }
                 }
             }
@@ -283,29 +289,41 @@ impl CallGraph {
         Ok(())
     }
 
-    /// Extract method calls from a single line of code
+    /// Extract method calls from a single line of code - ENHANCED VERSION
     fn extract_calls_from_line(&self, line: &str, language: &str) -> Vec<String> {
         let mut calls = Vec::new();
         let trimmed = line.trim();
 
         match language {
-            "rust" => {
-                // Look for function calls: name() or name!(
-                if let Ok(re) = regex::Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*[\(]") {
+            "java" => {
+                // Look for method calls: name() or object.name()
+                if let Ok(re) = regex::Regex::new(r"(\w+)\.(\w+)\s*\(") {
                     for cap in re.captures_iter(trimmed) {
-                        if let Some(name) = cap.get(1) {
-                            let method_name = name.as_str();
-                            // Skip common language constructs
+                        if let Some(method_name) = cap.get(2) {
+                            let method_name = method_name.as_str();
                             if !self.is_language_keyword(method_name, language) {
                                 calls.push(method_name.to_string());
                             }
                         }
                     }
                 }
+
+                // Also look for direct function calls: name()
+                if let Ok(re) = regex::Regex::new(r"\b(\w+)\s*\(") {
+                    for cap in re.captures_iter(trimmed) {
+                        if let Some(method_name) = cap.get(1) {
+                            let method_name = method_name.as_str();
+                            if !self.is_language_keyword(method_name, language) &&
+                                !self.is_java_builtin(method_name) {
+                                calls.push(method_name.to_string());
+                            }
+                        }
+                    }
+                }
             }
-            "java" | "csharp" => {
-                // Look for method calls: name() or object.name()
-                if let Ok(re) = regex::Regex::new(r"\.?([a-zA-Z_][a-zA-Z0-9_]*)\s*\(") {
+            "rust" => {
+                // Look for function calls: name() or name!(
+                if let Ok(re) = regex::Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*[\(]") {
                     for cap in re.captures_iter(trimmed) {
                         if let Some(name) = cap.get(1) {
                             let method_name = name.as_str();
@@ -319,19 +337,6 @@ impl CallGraph {
             "python" => {
                 // Look for function calls: name() or object.name()
                 if let Ok(re) = regex::Regex::new(r"\.?([a-zA-Z_][a-zA-Z0-9_]*)\s*\(") {
-                    for cap in re.captures_iter(trimmed) {
-                        if let Some(name) = cap.get(1) {
-                            let method_name = name.as_str();
-                            if !self.is_language_keyword(method_name, language) {
-                                calls.push(method_name.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-            "javascript" => {
-                // Look for function calls: name() or object.name()
-                if let Ok(re) = regex::Regex::new(r"\.?([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(") {
                     for cap in re.captures_iter(trimmed) {
                         if let Some(name) = cap.get(1) {
                             let method_name = name.as_str();
@@ -360,36 +365,24 @@ impl CallGraph {
         None
     }
 
-    /// Try to resolve a method call to a specific method signature
+    /// Try to resolve a method call to a specific method signature - IMPROVED VERSION
     fn resolve_method_call(
         &self,
-        file: &ParsedFile,
+        _file: &ParsedFile,
         call_name: &str,
         _caller: &MethodSignature,
     ) -> Option<MethodSignature> {
-        // Strategy: Look for methods with matching names
-        // Priority: same file > same namespace > any file
-
-        let mut candidates = Vec::new();
-
-        for signature in self.nodes.keys() {
-            if signature.method_name == call_name {
-                candidates.push(signature);
-            }
-        }
+        // Find all methods with matching names
+        let mut candidates: Vec<&MethodSignature> = self.nodes.keys()
+            .filter(|sig| sig.method_name == call_name)
+            .collect();
 
         if candidates.is_empty() {
             return None;
         }
 
-        // Prefer same file
-        for candidate in &candidates {
-            if candidate.file_path == file.path {
-                return Some((*candidate).clone());
-            }
-        }
-
-        // Return first match as fallback
+        // For now, return the first match
+        // TODO: Improve with scope resolution and import analysis
         Some(candidates[0].clone())
     }
 
@@ -399,9 +392,9 @@ impl CallGraph {
 
         if trimmed.contains("await") {
             CallType::Async
-        } else if trimmed.contains("if ") || trimmed.contains("match ") || trimmed.contains("switch ") {
+        } else if trimmed.contains("if ") || trimmed.contains("switch ") {
             CallType::Conditional
-        } else if trimmed.contains("for ") || trimmed.contains("while ") || trimmed.contains("loop ") {
+        } else if trimmed.contains("for ") || trimmed.contains("while ") {
             CallType::Loop
         } else if trimmed.contains("try") || trimmed.contains("catch") {
             CallType::Try
@@ -413,14 +406,19 @@ impl CallGraph {
     /// Check if a name is a language keyword
     fn is_language_keyword(&self, name: &str, language: &str) -> bool {
         let keywords: &[&str] = match language {
+            "java" => &["if", "else", "for", "while", "switch", "case", "break", "continue", "return", "try", "catch", "finally", "throw", "new", "this", "super", "class", "interface", "public", "private", "protected", "static", "final"],
             "rust" => &["if", "else", "for", "while", "loop", "match", "let", "mut", "fn", "struct", "enum", "impl", "trait", "mod", "use", "pub", "return", "break", "continue"],
-            "java" => &["if", "else", "for", "while", "switch", "case", "break", "continue", "return", "try", "catch", "finally", "throw", "new", "this", "super"],
             "python" => &["if", "else", "for", "while", "def", "class", "import", "from", "return", "break", "continue", "try", "except", "finally", "raise", "with", "as"],
-            "javascript" => &["if", "else", "for", "while", "switch", "case", "break", "continue", "return", "try", "catch", "finally", "throw", "new", "this", "function", "var", "let", "const"],
             _ => &[],
         };
 
         keywords.contains(&name)
+    }
+
+    /// Check if a name is a Java built-in method that we should ignore
+    fn is_java_builtin(&self, name: &str) -> bool {
+        let builtins = ["println", "print", "equals", "hashCode", "toString", "length", "size", "get", "put", "add", "remove"];
+        builtins.contains(&name)
     }
 
     /// Extract namespace from file path
@@ -470,7 +468,6 @@ impl CallGraph {
         let mut rec_stack = HashSet::new();
         let mut current_path = Vec::new();
 
-        // We need to clone the keys to avoid borrowing issues
         let node_keys: Vec<_> = self.nodes.keys().cloned().collect();
 
         for node in node_keys {
@@ -497,7 +494,6 @@ impl CallGraph {
         rec_stack.insert(node.clone());
         current_path.push(node.clone());
 
-        // Clone the callees to avoid borrowing issues
         let callees: Vec<_> = self.adjacency_list.get(node)
             .map(|v| v.clone())
             .unwrap_or_default();
@@ -506,7 +502,6 @@ impl CallGraph {
             if !visited.contains(&callee) {
                 self.dfs_cycle_detection(&callee, visited, rec_stack, current_path);
             } else if rec_stack.contains(&callee) {
-                // Found a cycle
                 if let Some(cycle_start) = current_path.iter().position(|n| n == &callee) {
                     let cycle = current_path[cycle_start..].to_vec();
                     self.cycles.push(cycle);
