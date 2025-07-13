@@ -1,3 +1,4 @@
+// Fixed src/core/mod.rs
 mod engine;
 mod parser;
 mod generator;
@@ -6,18 +7,12 @@ mod protector;
 mod validator;
 mod llm;
 
-// New package-level analysis
-mod package_analysis;
-mod package_analyzer;
-mod batch_processor;
-mod context_scanner;
-mod hierarchical_analyzer;
-mod system_overview_generator;
+// Call graph analysis (replacing package-level analysis)
+mod call_graph;
 
 // Language-specific parsers
 mod languages;
 
-pub use engine::Engine;
 pub use parser::{CodeParser, ParsedFile, ParsedModule};
 pub use generator::{DocGenerator, GeneratedDoc};
 pub use differ::{ContentDiffer, ContentDiff};
@@ -28,13 +23,15 @@ pub use llm::{
     EnhancementType, ProjectInfo, ArchitectureDocs, ArchitectureDetector
 };
 
-// New package-level exports
-pub use package_analysis::*;
-pub use package_analyzer::PackageAnalyzer;
-pub use batch_processor::{
-    BatchProcessor, BatchDocumentationRequest, BatchDocumentationResponse,
-    HumanContext, SystemContext, AnalysisFocus, FocusArea, DepthLevel, TargetAudience
+// New call graph exports
+pub use call_graph::{
+    CallGraph, CallNode, CallEdge, MethodSignature, CallType,
+    EntryPointDetector, EntryPoint, EntryPointType,
+    CallChainTracer, CallChain, CallStep,
+    CallChainGrouper, CallChainGroup,
+    CallChainAnalyzer, GroupAnalysis, VisitedSet,
+    CallChainEngine, CallChainAnalysisResult
 };
-pub use context_scanner::ContextScanner;
-pub use hierarchical_analyzer::HierarchicalAnalyzer;
-pub use system_overview_generator::SystemOverviewGenerator;
+
+// Export the main engine
+pub use engine::Engine;
