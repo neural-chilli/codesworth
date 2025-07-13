@@ -8,9 +8,12 @@ use super::{
     CodeParser, DocGenerator, ContentDiffer, EditProtector, DocValidator, LlmDocumenter,
     PackageAnalyzer, BatchProcessor, ContextScanner, PackageAnalysis,
     BatchDocumentationRequest, HumanContext, SystemContext, AnalysisFocus,
-    FocusArea, DepthLevel, TargetAudience, hierarchical_analyzer::HierarchicalAnalyzer,
-    system_overview_generator::SystemOverviewGenerator
+    FocusArea, DepthLevel, TargetAudience, HierarchicalAnalyzer,
+    SystemOverviewGenerator
 };
+
+// Import the BatchDocumentationResponse specifically to avoid confusion
+use super::batch_processor::BatchDocumentationResponse;
 
 /// Main orchestration engine for Codesworth with package-level processing
 pub struct Engine {
@@ -348,7 +351,7 @@ impl Engine {
 
     async fn format_enhanced_response(
         &self,
-        response: &super::BatchDocumentationResponse,
+        response: &BatchDocumentationResponse,
         package_analysis: &PackageAnalysis,
     ) -> Result<String> {
         let mut content = String::new();

@@ -385,7 +385,7 @@ impl CallGraph {
         // Prefer same file
         for candidate in &candidates {
             if candidate.file_path == file.path {
-                return Some(candidate.clone());
+                return Some((*candidate).clone());
             }
         }
 
@@ -412,7 +412,7 @@ impl CallGraph {
 
     /// Check if a name is a language keyword
     fn is_language_keyword(&self, name: &str, language: &str) -> bool {
-        let keywords = match language {
+        let keywords: &[&str] = match language {
             "rust" => &["if", "else", "for", "while", "loop", "match", "let", "mut", "fn", "struct", "enum", "impl", "trait", "mod", "use", "pub", "return", "break", "continue"],
             "java" => &["if", "else", "for", "while", "switch", "case", "break", "continue", "return", "try", "catch", "finally", "throw", "new", "this", "super"],
             "python" => &["if", "else", "for", "while", "def", "class", "import", "from", "return", "break", "continue", "try", "except", "finally", "raise", "with", "as"],
@@ -470,10 +470,13 @@ impl CallGraph {
         let mut rec_stack = HashSet::new();
         let mut current_path = Vec::new();
 
-        for node in self.nodes.keys() {
-            if !visited.contains(node) {
+        // We need to clone the keys to avoid borrowing issues
+        let node_keys: Vec<_> = self.nodes.keys().cloned().collect();
+
+        for node in node_keys {
+            if !visited.contains(&node) {
                 self.dfs_cycle_detection(
-                    node,
+                    &node,
                     &mut visited,
                     &mut rec_stack,
                     &mut current_path,
@@ -494,12 +497,17 @@ impl CallGraph {
         rec_stack.insert(node.clone());
         current_path.push(node.clone());
 
-        for callee in self.get_callees(node) {
-            if !visited.contains(callee) {
-                self.dfs_cycle_detection(callee, visited, rec_stack, current_path);
-            } else if rec_stack.contains(callee) {
+        // Clone the callees to avoid borrowing issues
+        let callees: Vec<_> = self.adjacency_list.get(node)
+            .map(|v| v.clone())
+            .unwrap_or_default();
+
+        for callee in callees {
+            if !visited.contains(&callee) {
+                self.dfs_cycle_detection(&callee, visited, rec_stack, current_path);
+            } else if rec_stack.contains(&callee) {
                 // Found a cycle
-                if let Some(cycle_start) = current_path.iter().position(|n| n == callee) {
+                if let Some(cycle_start) = current_path.iter().position(|n| n == &callee) {
                     let cycle = current_path[cycle_start..].to_vec();
                     self.cycles.push(cycle);
                 }

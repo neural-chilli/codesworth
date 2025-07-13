@@ -32,17 +32,21 @@ impl CallChainGrouper {
 
     /// Group call chains by their exact file sets
     pub fn group_call_chains(&self, call_chains: Vec<CallChain>) -> Result<Vec<CallChainGroup>> {
-        let mut file_set_to_chains: HashMap<HashSet<PathBuf>, Vec<CallChain>> = HashMap::new();
+        let mut file_set_to_chains: HashMap<Vec<PathBuf>, Vec<CallChain>> = HashMap::new();
 
         // Group chains by exact file sets
         for chain in call_chains {
-            let file_set = chain.involved_files.clone();
-            file_set_to_chains.entry(file_set).or_insert_with(Vec::new).push(chain);
+            // Convert HashSet to sorted Vec for use as HashMap key
+            let mut file_vec: Vec<PathBuf> = chain.involved_files.iter().cloned().collect();
+            file_vec.sort();
+
+            file_set_to_chains.entry(file_vec).or_insert_with(Vec::new).push(chain);
         }
 
         // Convert groups to structured format
         let mut groups = Vec::new();
-        for (file_set, chains) in file_set_to_chains {
+        for (file_vec, chains) in file_set_to_chains {
+            let file_set: HashSet<PathBuf> = file_vec.into_iter().collect();
             let group = self.create_group(file_set, chains)?;
             groups.push(group);
         }
